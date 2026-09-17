@@ -2,77 +2,98 @@
 
 ## Overview
 
-This guide provides instructions for deploying your three ASP.NET Core microservices to AWS Elastic Beanstalk with RDS
+This guide provides instructions for deploying your three ASP.NET Core microservices to one AWS Elastic Beanstalk
+environment (three processes on one instance) with RDS
 PostgreSQL databases.
 
 ---
 
 ## Part 1: RDS PostgreSQL Database Setup
 
-### Create Database Instances
+### Create Database Instance
 
-You have two options:
-
-1. **Three separate database instances** (more isolated, higher cost)
-2. **One database instance with three databases** (recommended, cost-effective)
-
-We'll use **Option 2**: One RDS instance with three databases. (db.t3.micro)
+One RDS instance holds all three databases. You create the first one (`userservicedb`) here; the other two are
+created automatically by the services themselves when they first start (see Part 2).
 
 **AWS Console → RDS → Create database**
+
+> **Sandbox limits (read before you click anything):** the sandbox IAM policy only allows `rds:CreateDBInstance` when
+> the instance class is exactly `db.t3.micro`, storage is 21 GiB or less, and Multi-AZ is off. Any other combination is
+> denied with an `rds:CreateDBInstance` authorization error, no matter how correct the rest of the form is. Also:
+>
+> - Make sure the console region is **US East (N. Virginia) us-east-1**. Every RDS and EC2 permission is scoped to it.
+> - Choose the **Sandbox** template (older consoles call it **Free tier**; **Dev/Test** also works). The **Production**
+>   template preselects Multi-AZ.
+> - Credentials management must be **Self managed**. The console defaults to Secrets Manager, which is not permitted.
+> - Untick **Enable storage autoscaling** and leave **Enhanced Monitoring** off.
 
 **Required Configuration:**
 
 | Setting                | Value                      | Notes                               |
 |------------------------|----------------------------|-------------------------------------|
-| Deployment             | Single-AZ DB instance      | Cost-effective option               |
+| Deployment             | Single-AZ DB instance      | Multi-AZ is denied by the sandbox   |
 | DB instance identifier | `library-microservices-db` | Unique name for your instance       |
 | Master username        | `postgres`                 | Database admin user                 |
 | Master password        | Create secure password     | Save this - required for connection |
-| Credentials management | Self managed               | Manual password control             |
-| Instance class         | `db.t3.micro`             | Burstable classes section           |
+| Credentials management | Self managed               | Secrets Manager is not permitted    |
+| Instance class         | `db.t3.micro`              | Burstable classes. Only class the sandbox allows |
 | Storage type           | General Purpose SSD (gp2)  | Default option                      |
-| Allocated storage      | 20 GiB                     | As specified                        |
+| Allocated storage      | 20 GiB                     | Sandbox maximum is 21 GiB           |
 | Compute resource       | Don't connect to EC2       | Manual configuration                |
 | Network type           | IPv4                       | Standard                            |
 | VPC                    | Default VPC                | Must match Elastic Beanstalk        |
 | DB subnet group        | default                    | Use existing                        |
-| Public access          | yes                         | Security best practice              |
+| Public access          | No                         | Security best practice              |
 | VPC security group     | default                    | Will configure later                |
-| Initial database name  | `userservicedb`            | First database (User Service)       |
+| Initial database name  | `userservicedb`            | Must be filled in. The other two databases are created by the services |
+
+### Step-by-step with screenshots
+
+These were taken creating an instance called `java-capstone` with initial database `librarydb`. Use
+`library-microservices-db` and `userservicedb` instead; every other field is identical.
+
+**1. Start in the right region.** URL and region picker both say `us-east-1`. Click **Create database**.
+
+![RDS Databases page, empty, in us-east-1](images/rds/01-databases-empty-us-east-1.png)
+
+**2. Engine, creation method, template.** PostgreSQL, **Full configuration**, **Sandbox**.
+
+![Engine type PostgreSQL, Full configuration, Sandbox template](images/rds/02-engine-method-template.png)
+
+**3. Identifier and credentials.** `library-microservices-db`, master username `postgres`, **Self managed**, type
+and confirm a password, write it down.
+
+![DB instance identifier and Self managed credentials](images/rds/03-identifier-credentials.png)
+
+**4. Instance class and storage.** Burstable classes → **`db.t3.micro`**. gp2, **20** GiB.
+
+![Burstable db.t3.micro, gp2, 20 GiB](images/rds/04-instance-class-storage.png)
+
+**5. Storage autoscaling and connectivity.** Untick **Enable storage autoscaling**. Don't connect to an EC2 compute
+resource. Default VPC, default subnet group, Public access **No**, security group **default**.
+
+![Storage autoscaling off, no EC2 connection, Default VPC](images/rds/05-autoscaling-connectivity.png)
+
+**6. Additional configuration.** Expand it. **Initial database name: `userservicedb`**. Leave it blank and no
+database is created at all.
+
+![Initial database name](images/rds/06-additional-config-db-name.png)
+
+**7. Create database.** Status **Creating**, size `db.t3.micro`. The blue banner is normal.
+
+![Instance in Creating status](images/rds/07-creating.png)
+
+Ignore any red "Error loading KMS Keys ... kms:ListAliases" box in the Monitoring section; nothing here needs KMS.
 
 **After Creation:**
 
 - Wait for status to show "Available" (5-10 minutes)
-- Navigate to database in RDS console
-- Copy the **Endpoint** from Connectivity & security tab
-- Format: `library-microservices-db.xxxxx.us-east-1.rds.amazonaws.com`
-- Save this endpoint for application configuration
+- Click the instance → **Connectivity & security**
+- Copy the **Endpoint**. Format: `library-microservices-db.xxxxx.us-east-1.rds.amazonaws.com`
+- Note that the instance is in the `default` security group. You will need that name in Part 3.
 
-### Create Additional Databases
+![RDS endpoint and security group](images/rds/08-endpoint.png)
 
-Connect to your RDS instance and create the other two databases:
-
-```bash
-# Install PostgreSQL client (if not already installed)
-# macOS: brew install postgresql
-# Ubuntu: sudo apt-get install postgresql-client
-
-# Connect to RDS instance
-psql -h library-microservices-db.xxxxx.us-east-1.rds.amazonaws.com -U postgres -d postgres
-
-# Create additional databases
-CREATE DATABASE catalogservicedb;
-CREATE DATABASE reservationservicedb;
-
-# Verify databases
-\l
-
-# Exit
-\q
-```
-
-
-- Note after this you can turn public access off again, you just need this to create the extra databases
 ---
 
 ## Part 2: Application Preparation
@@ -101,11 +122,28 @@ if (builder.Environment.IsDevelopment())
 }
 else
 {
-    var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+    // Each service reads its OWN connection string key: UserDb, CatalogDb or ReservationDb.
+    // All three services share one set of environment variables in production, so a shared
+    // "DefaultConnection" would point every service at the same database.
+    var connectionString = builder.Configuration.GetConnectionString("CatalogDb");
     builder.Services.AddDbContext<YourDbContext>(options =>
         options.UseNpgsql(connectionString));
 }
+
+var app = builder.Build();
+
+// Apply migrations on startup. With Npgsql this also CREATES the database if it does not exist yet,
+// which is how catalogservicedb and reservationservicedb come into being on the shared RDS instance.
+if (!app.Environment.IsDevelopment())
+{
+    using var scope = app.Services.CreateScope();
+    scope.ServiceProvider.GetRequiredService<YourDbContext>().Database.Migrate();
+}
 ```
+
+Each service must also accept its port from the command line rather than hardcoding it: leave `"urls"` out of
+`appsettings.json` for production, or make sure `--urls` on the command line wins. The deployment starts each
+service with `--urls http://0.0.0.0:<port>`.
 
 ### Create Entity Framework Migrations
 
@@ -138,145 +176,171 @@ dotnet ef migrations list
 cd ..
 ```
 
-### Build Production Packages
+### Build One Deployment Bundle
 
-Build each microservice:
+All three services are deployed together in **one** Elastic Beanstalk environment, as three processes on one
+instance. (The sandbox allows at most 2 EC2 instances, so three separate environments cannot be created.) The
+bundle is one zip containing the three published services plus two small files that tell Elastic Beanstalk how to
+run and route them.
+
+Create these two files once, in the repository root:
+
+`Procfile` (no extension). One line per service. The one named `web` must listen on port 5000, because that is
+where Elastic Beanstalk's nginx sends requests for `/`.
+
+```
+web: dotnet ./UserService/UserService.dll --urls http://0.0.0.0:5000
+catalog: dotnet ./CatalogService/CatalogService.dll --urls http://0.0.0.0:5002
+reservation: dotnet ./ReservationService/ReservationService.dll --urls http://0.0.0.0:5003
+```
+
+`.platform/nginx/conf.d/elasticbeanstalk/services.conf`. Routes `/catalog/...` and `/reservations/...` to the
+other two processes. The directory name matters: this is the one folder Elastic Beanstalk includes inside its
+`server` block.
+
+```nginx
+location /catalog/ {
+    proxy_pass http://127.0.0.1:5002/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+}
+location /reservations/ {
+    proxy_pass http://127.0.0.1:5003/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+}
+```
+
+Then build the bundle:
 
 ```bash
-# User Service
-cd UserService
-dotnet clean
-dotnet publish -c Release -o ./publish
-cd publish
-zip -r ../../UserService.zip .
-cd ../..
+rm -rf bundle
+dotnet publish UserService        -c Release -o bundle/UserService
+dotnet publish CatalogService     -c Release -o bundle/CatalogService
+dotnet publish ReservationService -c Release -o bundle/ReservationService
+cp Procfile bundle/
+cp -r .platform bundle/
+(cd bundle && zip -r ../library-microservices.zip .)
+```
 
-# Catalog Service
-cd CatalogService
-dotnet clean
-dotnet publish -c Release -o ./publish
-cd publish
-zip -r ../../CatalogService.zip .
-cd ../..
+Verify the zip has the right shape (the `Procfile` and `.platform` folder must be at the root, not inside a
+subfolder):
 
-# Reservation Service
-cd ReservationService
-dotnet clean
-dotnet publish -c Release -o ./publish
-cd publish
-zip -r ../../ReservationService.zip .
-cd ../..
-
-# Verify migrations are included
-dotnet ef migrations list
+```bash
+unzip -l library-microservices.zip | grep -E "Procfile|services.conf|\.dll$"
 ```
 
 ---
 
 ## Part 3: Elastic Beanstalk Deployment
 
-### Deploy User Service (Port 5001)
+### Before you start
 
-**AWS Console → Elastic Beanstalk → Create application**
+- Have the RDS endpoint and master password from Part 1 to hand.
+- Have `library-microservices.zip` built (Part 2).
+- Generate the JWT secret now so you can paste it: `openssl rand -base64 32`
+- Region must still be **us-east-1**.
 
-**Configuration:**
+> **Sandbox limits:** the sandbox denies `ec2:RunInstances` for any instance type other than **`t3.medium`**. The
+> Elastic Beanstalk form defaults to `t3.micro` and `t3.small`. If you leave those in, the environment fails to
+> launch. The instance type is set in the **Infrastructure** section below.
 
-| Setting          | Value                                               |
-|------------------|-----------------------------------------------------|
-| Environment tier | Web server environment                              |
-| Application name | `user-service`                                      |
-| Environment name | `user-service-env`                                  |
-| Domain           | Leave blank (auto-generated)                        |
-| Platform         | .NET Core on Linux                                  |
-| Platform branch  | .NET 10 running on 64bit Amazon Linux |
-| Platform version | Latest recommended version                          |
-| Application code | Upload your code                                    |
-| Version label    | `v1.0.0`                                            |
-| Source           | Local file → Select `UserService.zip`               |
-| Presets          | Single instance (free tier)                         |
+### Create the application and environment
 
-**Environment Variables for User Service:**
+> **A word about words.** Elastic Beanstalk calls its top-level folder an *application* and the running instance an
+> *environment*. You create **one** Beanstalk application and **one** environment. Your **three** ASP.NET
+> applications (User, Catalog, Reservation) all run inside that one environment, as three processes started by the
+> `Procfile`. "One application" below always means the Beanstalk folder, never your services.
 
-* Don't include the `[]` in your actual values, replace them
+**AWS Console → Elastic Beanstalk → Applications → Create application**, name it `library-microservices`, then
+**Create new environment**. The console shows everything on one page with collapsible sections. Work through it top
+to bottom. Every setting you must change is listed here; leave anything not mentioned at its default.
 
-| Name                                   | Value                                                                                             | Description                                          |
-|----------------------------------------|---------------------------------------------------------------------------------------------------|------------------------------------------------------|
-| `ASPNETCORE_ENVIRONMENT`               | `Production`                                                                                      | Activates production configuration                   |
-| `ConnectionStrings__DefaultConnection` | `Host=[RDS-ENDPOINT];Port=5432;Database=userservicedb;Username=postgres;Password=[YOUR-PASSWORD]` | PostgreSQL connection string                         |
-| `Jwt__Secret`                          | `[generate-secure-secret]`                                                                        | Generate with: `openssl rand -base64 32`             |
-| `Jwt__Issuer`                          | `LibraryManagementApi`                                                                            | JWT token issuer                                     |
-| `Jwt__Audience`                        | `LibraryManagementApiUsers`                                                                       | JWT token audience                                   |
-| `ServiceUrls__ReservationService`      | `http://reservation-service-env.us-east-1.elasticbeanstalk.com`                                   | URL of Reservation Service (update after deployment) |
+| Section              | Setting                    | Value                                                  |
+|----------------------|----------------------------|--------------------------------------------------------|
+| Environment details  | Application name           | `library-microservices`                                |
+|                      | Environment name           | `library-microservices-env`                            |
+|                      | Domain name prefix         | Leave blank (auto-generated)                           |
+|                      | Platform                   | .NET Core on Linux                                     |
+|                      | Platform branch            | .NET 10 running on 64bit Amazon Linux 2023             |
+|                      | Platform version           | Recommended                                            |
+| Application code     | Source                     | Local file → `library-microservices.zip`               |
+|                      | Version label              | `v1.0.0` (increment for each deployment)               |
+| Environment properties | Add environment properties | Tick it, then add the variables in the table below   |
+| Service access       | Service role               | Create default role (`aws-elasticbeanstalk-service-role`) |
+|                      | EC2 instance profile       | Create default role (`aws-elasticbeanstalk-ec2-role`)  |
+|                      | EC2 key pair               | Leave empty                                            |
+| Infrastructure       | Environment tier           | Web server environment                                 |
+|                      | Environment type           | Single instance                                        |
+|                      | Fleet composition          | On-Demand Instance                                     |
+|                      | Architecture               | x86_64                                                 |
+|                      | **Instance types**         | **Remove `t3.micro` and `t3.small`, add `t3.medium`, nothing else** |
+|                      | Root volume type           | [Platform default]                                     |
+| Networking           | VPC                        | [Default VPC] (same as RDS)                            |
+|                      | Instance subnets           | Leave the pre-selected subnets                         |
+|                      | **EC2 security groups**    | **Add `default`.** This is what lets the instance reach RDS. Skip it and the app cannot connect to the database. |
+| Monitoring and updates | Health reporting         | Basic                                                  |
+|                      | Log streaming, S3 logs, X-Ray | Off                                                 |
+|                      | Deployment policy          | All at once                                            |
+|                      | **Managed platform updates** | **Untick "Enable managed updates"**                  |
 
-### Deploy Catalog Service (Port 5002)
+**Environment properties.** All three processes see the same variables, which is why each service has its own
+connection string key. Don't include the `[]` in your actual values.
 
-Repeat the Elastic Beanstalk creation process with these values:
+| Name                                | Value                                                                                                   |
+|-------------------------------------|---------------------------------------------------------------------------------------------------------|
+| `ASPNETCORE_ENVIRONMENT`            | `Production`                                                                                            |
+| `ConnectionStrings__UserDb`         | `Host=[RDS-ENDPOINT];Port=5432;Database=userservicedb;Username=postgres;Password=[YOUR-PASSWORD]`        |
+| `ConnectionStrings__CatalogDb`      | `Host=[RDS-ENDPOINT];Port=5432;Database=catalogservicedb;Username=postgres;Password=[YOUR-PASSWORD]`     |
+| `ConnectionStrings__ReservationDb`  | `Host=[RDS-ENDPOINT];Port=5432;Database=reservationservicedb;Username=postgres;Password=[YOUR-PASSWORD]` |
+| `Jwt__Secret`                       | Output of `openssl rand -base64 32`. Shared by all three services                                       |
+| `Jwt__Issuer`                       | `LibraryManagementApi`                                                                                  |
+| `Jwt__Audience`                     | `LibraryManagementApiUsers`                                                                             |
+| `ServiceUrls__UserService`          | `http://localhost:5000`                                                                                 |
+| `ServiceUrls__CatalogService`       | `http://localhost:5002`                                                                                 |
+| `ServiceUrls__ReservationService`   | `http://localhost:5003`                                                                                 |
 
-**Configuration:**
+The services talk to each other over `localhost` because they run on the same instance. No security group rules
+between them are needed.
 
-| Setting          | Value                                    |
-|------------------|------------------------------------------|
-| Application name | `catalog-service`                        |
-| Environment name | `catalog-service-env`                    |
-| Source           | Local file → Select `CatalogService.zip` |
+### Step-by-step with screenshots
 
-**Environment Variables for Catalog Service:**
+These were taken deploying the Java capstone; the Beanstalk screens are the same apart from the platform, the
+upload and the environment property names.
 
-| Name                                   | Value                                                                                                | Description                        |
-|----------------------------------------|------------------------------------------------------------------------------------------------------|------------------------------------|
-| `ASPNETCORE_ENVIRONMENT`               | `Production`                                                                                         | Activates production configuration |
-| `ConnectionStrings__DefaultConnection` | `Host=[RDS-ENDPOINT];Port=5432;Database=catalogservicedb;Username=postgres;Password=[YOUR-PASSWORD]` | PostgreSQL connection string       |
+**1. Service access.** Expand it. Leave both on **Create default role**.
 
-### Deploy Reservation Service (Port 5003)
+![Service access with Create default role](images/eb/04-service-access.png)
 
-Repeat the Elastic Beanstalk creation process with these values:
+**2. Infrastructure: tier and scaling.** Web server environment, **Single instance**, On-Demand.
 
-**Configuration:**
+![Web server, single instance, on-demand](images/eb/05-single-instance.png)
 
-| Setting          | Value                                        |
-|------------------|----------------------------------------------|
-| Application name | `reservation-service`                        |
-| Environment name | `reservation-service-env`                    |
-| Source           | Local file → Select `ReservationService.zip` |
+**3. Infrastructure: compute.** Under **Instance types**, **Remove** `t3.micro` and `t3.small`, then **Add instance
+type** → `t3.medium`. Only `t3.medium` when you are done.
 
-**Environment Variables for Reservation Service:**
+![Instance types showing only t3.medium](images/eb/06-instance-type-t3-medium.png)
 
-| Name                                   | Value                                                                                                    | Description                        |
-|----------------------------------------|----------------------------------------------------------------------------------------------------------|------------------------------------|
-| `ASPNETCORE_ENVIRONMENT`               | `Production`                                                                                             | Activates production configuration |
-| `ConnectionStrings__DefaultConnection` | `Host=[RDS-ENDPOINT];Port=5432;Database=reservationservicedb;Username=postgres;Password=[YOUR-PASSWORD]` | PostgreSQL connection string       |
-| `Jwt__Secret`                          | `[same-as-user-service]`                                                                                 | Must match User Service JWT secret |
-| `Jwt__Issuer`                          | `LibraryManagementApi`                                                                                   | Must match User Service            |
-| `Jwt__Audience`                        | `LibraryManagementApiUsers`                                                                              | Must match User Service            |
-| `ServiceUrls__UserService`             | `http://user-service-env.us-east-1.elasticbeanstalk.com`                                                 | URL of User Service                |
-| `ServiceUrls__CatalogService`          | `http://catalog-service-env.us-east-1.elasticbeanstalk.com`                                              | URL of Catalog Service             |
+**4. Networking.** Default VPC, subnets pre-selected. Under **EC2 security groups**, open the dropdown and tick
+**`default`**.
 
-**Note:** After deploying each service, copy its URL and update the other services' environment variables.
+**5. Monitoring and logging.** Health reporting **Basic**. Everything else unticked.
 
----
+![Monitoring and logging left at defaults](images/eb/08-monitoring-logging.png)
 
-## Part 4: Security Configuration
+**6. Deployments and managed updates.** All at once. **Untick "Enable managed updates"**.
 
-### Update RDS Security Group
+![Managed updates unticked](images/eb/09-managed-updates-off.png)
 
-After all services and RDS are running:
+**7. Create.** Expand **Review**, confirm Instance types shows `t3.medium` only, Security groups shows `default`,
+Managed updates shows "Turned off", and Environment properties lists all ten. Click **Create**. Wait 5-10 minutes
+for "Environment successfully launched" and Health **Green**.
 
-1. **AWS Console → EC2 → Security Groups**
-2. Find the RDS security group (check RDS instance details for security group ID)
-3. Click **Edit inbound rules**
-4. Add three inbound rules:
-   - **Type:** PostgreSQL, **Port:** 5432, **Source:** User Service security group
-   - **Type:** PostgreSQL, **Port:** 5432, **Source:** Catalog Service security group
-   - **Type:** PostgreSQL, **Port:** 5432, **Source:** Reservation Service security group
-5. Click **Save rules**
+![Environment successfully launched](images/eb/10-environment-launched.png)
 
-### Allow Inter-Service Communication
-
-1. **AWS Console → EC2 → Security Groups**
-2. For each Elastic Beanstalk security group:
-   - Click **Edit inbound rules**
-   - Add HTTP rule allowing traffic from other service security groups
-   - **Type:** HTTP, **Port:** 80, **Source:** Other services' security groups
+Because the instance is in the `default` security group from the start, the services can reach RDS on their first
+boot. On that first boot each service runs its migrations, which creates `catalogservicedb` and
+`reservationservicedb`. There is no separate security-group step.
 
 ---
 
@@ -284,17 +348,26 @@ After all services and RDS are running:
 
 ### Test Each Service
 
+All three services share one hostname. User Service answers at the root, the other two under a path prefix.
+Replace `EB` with the domain shown on the environment page.
+
+```bash
+EB=http://library-microservices-env.xxxxxxxx.us-east-1.elasticbeanstalk.com
+
+# Health checks, one per service
+curl $EB/health
+curl $EB/catalog/health
+curl $EB/reservations/health
+```
+
 **User Service:**
 
 ```bash
-# Health check
-curl http://user-service-env.us-east-1.elasticbeanstalk.com/health
-
 # Swagger UI
-http://user-service-env.us-east-1.elasticbeanstalk.com/swagger
+open $EB/swagger
 
 # Register a user
-curl -X POST http://user-service-env.us-east-1.elasticbeanstalk.com/api/auth/register \
+curl -X POST $EB/api/auth/register \
   -H "Content-Type: application/json" \
   -d '{
     "email": "test@example.com",
@@ -305,7 +378,7 @@ curl -X POST http://user-service-env.us-east-1.elasticbeanstalk.com/api/auth/reg
   }'
 
 # Login
-curl -X POST http://user-service-env.us-east-1.elasticbeanstalk.com/api/auth/login \
+curl -X POST $EB/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{
     "email": "test@example.com",
@@ -316,21 +389,17 @@ curl -X POST http://user-service-env.us-east-1.elasticbeanstalk.com/api/auth/log
 **Catalog Service:**
 
 ```bash
-# Health check
-curl http://catalog-service-env.us-east-1.elasticbeanstalk.com/health
-
-# Browse catalog
-curl http://catalog-service-env.us-east-1.elasticbeanstalk.com/api/catalog/books
+open $EB/catalog/swagger
+curl $EB/catalog/api/catalog/books
 ```
 
 **Reservation Service:**
 
 ```bash
-# Health check
-curl http://reservation-service-env.us-east-1.elasticbeanstalk.com/health
+open $EB/reservations/swagger
 
 # Create reservation (requires token from User Service login)
-curl -X POST http://reservation-service-env.us-east-1.elasticbeanstalk.com/api/reservations \
+curl -X POST $EB/reservations/api/reservations \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer [YOUR-JWT-TOKEN]" \
   -d '{
@@ -340,9 +409,10 @@ curl -X POST http://reservation-service-env.us-east-1.elasticbeanstalk.com/api/r
 
 ### Check Application Logs
 
-For each service:
+- **Elastic Beanstalk Console → library-microservices-env → Logs → Request Logs → Last 100 Lines**
 
-- **Elastic Beanstalk Console → [Service] → Logs → Request Logs → Last 100 Lines**
+Each Procfile process has its own log, named after the process: `web.stdout.log`, `catalog.stdout.log`,
+`reservation.stdout.log` under `/var/log/`.
 
 Look for:
 
@@ -354,6 +424,30 @@ Look for:
 
 ## Common Issues & Solutions
 
+### Issue: `rds:CreateDBInstance` not authorized
+
+The sandbox policy only allows database creation when the instance class is `db.t3.micro`, storage is 21 GiB or
+less, Multi-AZ is off and the region is us-east-1. The most common cause is the instance class.
+
+### Issue: 502 Bad Gateway on `/catalog/` or `/reservations/` but `/` works
+
+nginx is not routing to the other two processes. Either `.platform/nginx/conf.d/elasticbeanstalk/services.conf`
+is missing from the zip, or it is in a different directory (only that exact path is included in nginx's `server`
+block). Check with `unzip -l library-microservices.zip`.
+
+### Issue: One service is down, the other two work
+
+Read that process's log: `catalog.stdout.log` or `reservation.stdout.log` in the request logs. A service that
+crashes on startup is almost always a connection string problem (`ConnectionStrings__CatalogDb` misspelled or
+pointing at the wrong database name).
+
+### Issue: 502 Bad Gateway on everything right after launch
+
+The `default` security group was not added under Networking → EC2 security groups, so no service can reach RDS
+and all three exit. Fix it after the fact: EC2 → Security Groups → `default` → Edit inbound rules → add
+PostgreSQL (5432) with source = the `awseb-e-...-AWSEBSecurityGroup-...` group, then Elastic Beanstalk → Actions →
+Restart app server(s).
+
 ### Issue: Service Can't Connect to Database
 
 **Check:**
@@ -361,8 +455,8 @@ Look for:
 - Connection string format is correct with double underscores (`__`)
 - RDS endpoint matches exactly
 - Database name is correct for each service
-- RDS security group allows inbound from all service security groups
-- All services and RDS are in the same VPC
+- The instance is in the `default` security group (Networking → EC2 security groups)
+- The service reads its own key (`ConnectionStrings__UserDb`, `__CatalogDb`, `__ReservationDb`)
 - Database credentials are correct
 - RDS instance status is "Available"
 
@@ -370,10 +464,9 @@ Look for:
 
 **Check:**
 
-- Service URLs are correct in environment variables
-- Security groups allow HTTP traffic between services
-- All services are running (green health status)
-- Network is configured correctly (same VPC)
+- `ServiceUrls__*` point at `http://localhost:5000`, `5002`, `5003`, not at a public hostname
+- The Procfile ports match those URLs
+- All three processes are running (each `/health` answers)
 
 ### Issue: JWT Token Validation Fails
 
@@ -387,8 +480,8 @@ Look for:
 
 **Check:**
 
-- Migrations folder is included in ZIP files
-- `MigrateAsync()` is called in Program.cs
+- Migrations folder is included in each service's publish output
+- `Database.Migrate()` is called in Program.cs (this also creates the database)
 - Application has permission to create tables
 - Check logs for migration errors
 
@@ -398,53 +491,36 @@ Look for:
 
 ### RDS Setup
 
-- [ ] RDS PostgreSQL instance created (`library-microservices-db`)
+- [ ] RDS PostgreSQL instance created (`library-microservices-db`, `db.t3.micro`)
 - [ ] Database status is "Available"
 - [ ] RDS endpoint documented and saved
-- [ ] Three databases created (userservicedb, catalogservicedb, reservationservicedb)
+- [ ] `userservicedb` created via Initial database name
 
-### User Service
+### Bundle
 
-- [ ] User Service ZIP built with migrations
-- [ ] Elastic Beanstalk environment created
-- [ ] All environment variables configured
-- [ ] Environment health shows "Ok" (green)
-- [ ] Swagger UI accessible
-- [ ] User registration works
-- [ ] User login returns JWT token
+- [ ] `Procfile` and `.platform/nginx/conf.d/elasticbeanstalk/services.conf` in the repository root
+- [ ] Each service reads its own connection string key and calls `Database.Migrate()` on startup
+- [ ] `library-microservices.zip` built with all three services and both files at the root
 
-### Catalog Service
+### Elastic Beanstalk
 
-- [ ] Catalog Service ZIP built with migrations
-- [ ] Elastic Beanstalk environment created
-- [ ] All environment variables configured
-- [ ] Environment health shows "Ok" (green)
-- [ ] Swagger UI accessible
+- [ ] One environment created, instance type `t3.medium` only, `default` security group added
+- [ ] Managed platform updates turned off
+- [ ] All ten environment properties configured
+- [ ] Environment health shows Green
+- [ ] `/health`, `/catalog/health`, `/reservations/health` all answer
+- [ ] `catalogservicedb` and `reservationservicedb` appear on the RDS instance after first boot
+- [ ] Swagger UI accessible for all three services
+- [ ] User registration works and login returns JWT token
 - [ ] Catalog browsing works
-
-### Reservation Service
-
-- [ ] Reservation Service ZIP built with migrations
-- [ ] Elastic Beanstalk environment created
-- [ ] All environment variables configured
-- [ ] Environment health shows "Ok" (green)
-- [ ] Swagger UI accessible
 - [ ] Can create reservations with authentication
-- [ ] Waitlist expiry background job is running (check application logs for its periodic output)
-
-### Security & Communication
-
-- [ ] RDS security group allows all services to connect
-- [ ] Service security groups allow inter-service communication
-- [ ] User Service can call Reservation Service
-- [ ] Reservation Service can call User Service
-- [ ] Reservation Service can call Catalog Service
+- [ ] Waitlist expiry background job is running (check `reservation.stdout.log` for its periodic output)
 
 ### End-to-End Testing
 
 - [ ] Complete reservation workflow works (reserve → checkout → return)
-- [ ] Profile endpoint shows statistics from Reservation Service
-- [ ] Book availability updates via Catalog Service
+- [ ] Profile endpoint shows statistics from Reservation Service (User → Reservation over localhost)
+- [ ] Book availability updates via Catalog Service (Reservation → Catalog over localhost)
 - [ ] Role-based authorization enforced
 
 ---
