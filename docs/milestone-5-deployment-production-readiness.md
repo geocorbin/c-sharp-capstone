@@ -17,7 +17,7 @@
 - Services must be able to communicate with each other in production
 
 ### Production Environment Requirements
-- Three publicly accessible API endpoints (one per service)
+- Three publicly accessible API endpoints (one per service, as path prefixes on one hostname)
 - Persistent data storage for each service
 - Environment-specific configuration
 - Secure credential management
@@ -30,11 +30,9 @@
 
 **Deployment Platform:**
 - AWS Elastic Beanstalk (or equivalent cloud platform)
-- .NET 8.0 or 9.0 runtime environment
-- Three separate application deployments (one per service)
-- Free tier eligible instances for application hosting (Elastic Beanstalk/EC2). Note: the RDS database
-  instance itself uses `db.t3.medium`, which is **not** Free Tier eligible - see the cost note in
-  `production-environment-setup.md` for expected cost and how to delete it when you're done.
+- .NET 10 runtime environment
+- Three services deployed as separate processes in one Elastic Beanstalk environment (the sandbox allows two EC2 instances)
+- `t3.medium` EC2 instance and `db.t3.micro` RDS instance (the only sizes the sandbox allows)
 
 **Database:**
 - PostgreSQL 15.x on AWS RDS (or equivalent)
@@ -114,24 +112,24 @@ Verify deployment success for all services:
 
 ### User Service Environment Variables:
 - **ASPNETCORE_ENVIRONMENT:** Production
-- **ConnectionStrings__DefaultConnection:** PostgreSQL connection string for UserServiceDb
+- **ConnectionStrings__UserDb:** PostgreSQL connection string for UserServiceDb
 - **Jwt__Secret:** Secure JWT secret (shared across all services)
 - **Jwt__Issuer:** Token issuer name
 - **Jwt__Audience:** Token audience name
-- **ServiceUrls__ReservationService:** URL of Reservation Service
+- **ServiceUrls__ReservationService:** URL of Reservation Service (`http://localhost:5003` in production)
 
 ### Catalog Service Environment Variables:
 - **ASPNETCORE_ENVIRONMENT:** Production
-- **ConnectionStrings__DefaultConnection:** PostgreSQL connection string for CatalogServiceDb
+- **ConnectionStrings__CatalogDb:** PostgreSQL connection string for CatalogServiceDb
 
 ### Reservation Service Environment Variables:
 - **ASPNETCORE_ENVIRONMENT:** Production
-- **ConnectionStrings__DefaultConnection:** PostgreSQL connection string for ReservationServiceDb
+- **ConnectionStrings__ReservationDb:** PostgreSQL connection string for ReservationServiceDb
 - **Jwt__Secret:** Secure JWT secret (same as User Service)
 - **Jwt__Issuer:** Token issuer name (same as User Service)
 - **Jwt__Audience:** Token audience name (same as User Service)
-- **ServiceUrls__UserService:** URL of User Service
-- **ServiceUrls__CatalogService:** URL of Catalog Service
+- **ServiceUrls__UserService:** URL of User Service (`http://localhost:5000` in production)
+- **ServiceUrls__CatalogService:** URL of Catalog Service (`http://localhost:5002` in production)
 
 **Note:** All sensitive values should be configured as environment variables, never hardcoded.
 
@@ -272,7 +270,7 @@ If deployment fails or application doesn't work:
 12. Test all API functionality end-to-end
 13. Document deployment (URLs, credentials, configuration)
 
-**Note:** You have flexibility in choosing cloud platform services and configuration approaches. Focus on achieving working, secure, production deployments that meet all acceptance criteria. Services can be deployed to separate Elastic Beanstalk environments or containerized solutions.
+**Note:** You have flexibility in choosing cloud platform services and configuration approaches. Focus on achieving working, secure, production deployments that meet all acceptance criteria. Follow `production-enviroment-setup.md` for the tested deployment; separate environments per service exceed the sandbox's instance limit.
 
 ---
 

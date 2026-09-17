@@ -217,7 +217,9 @@ public enum WaitlistStatus { Waiting, Notified, Claimed, Expired, Cancelled }
 
 ### 4. DbContext Per Service
 
-Create separate DbContext for each service:
+Create separate DbContext for each service. Each service reads its own connection string key (`UserDb`,
+`CatalogDb`, `ReservationDb`), not a shared `DefaultConnection`, and calls `Database.Migrate()` at startup so the
+database and tables are created on first run.
 - **UserServiceContext** - manages User entity
 - **CatalogServiceContext** - manages Book entity
 - **ReservationServiceContext** - manages Reservation entity
@@ -306,6 +308,9 @@ Configure in each service's `appsettings.json`:
   }
 }
 ```
+
+These ports are local defaults. In production the deployment starts each service with `--urls`, which overrides
+them, so never hardcode a port in `Program.cs`.
 
 ---
 
