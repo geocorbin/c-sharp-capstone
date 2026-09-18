@@ -150,22 +150,25 @@ public class ReservationsController(
         var totalElements = await query.CountAsync();
         var totalPages = totalElements == 0 ? 0 : (int)Math.Ceiling(totalElements / (double)size);
 
-        var content = await query
+        var pageOfReservations = await query
             .Skip(page * size)
             .Take(size)
-            .Select(r => new HistoryItemResponse
-            {
-                ReservationId = r.ReservationId,
-                BookTitle = r.BookTitle,
-                BookAuthor = r.BookAuthor,
-                ReservedAt = r.ReservedAt,
-                CheckedOutAt = r.CheckedOutAt,
-                ReturnedAt = r.ReturnedAt,
-                DueDate = r.DueDate,
-                Status = r.Status.ToString().ToUpperInvariant(),
-                WasLate = r.ReturnedAt.HasValue && r.DueDate.HasValue && r.ReturnedAt.Value > r.DueDate.Value
-            })
             .ToListAsync();
+
+        // Projected in memory, same reasoning as GetActiveReservations above -
+        // ToWireString() is a hand-written C# method with no SQL translation.
+        var content = pageOfReservations.Select(r => new HistoryItemResponse
+        {
+            ReservationId = r.ReservationId,
+            BookTitle = r.BookTitle,
+            BookAuthor = r.BookAuthor,
+            ReservedAt = r.ReservedAt,
+            CheckedOutAt = r.CheckedOutAt,
+            ReturnedAt = r.ReturnedAt,
+            DueDate = r.DueDate,
+            Status = r.Status.ToWireString(),
+            WasLate = r.ReturnedAt.HasValue && r.DueDate.HasValue && r.ReturnedAt.Value > r.DueDate.Value
+        }).ToList();
 
         return Ok(new PagedResult<HistoryItemResponse>
         {
@@ -194,7 +197,7 @@ public class ReservationsController(
             {
                 Error = "INVALID_STATUS",
                 Message = "Can only checkout reservations with RESERVED status",
-                CurrentStatus = reservation.Status.ToString().ToUpperInvariant()
+                CurrentStatus = reservation.Status.ToWireString()
             });
         }
 

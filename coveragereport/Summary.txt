@@ -1,0 +1,92 @@
+Summary
+  Generated on: 9/18/2026 - 1:06:56 AM
+  Coverage date: 9/18/2026 - 12:17:51 AM - 9/18/2026 - 1:06:55 AM
+  Parser: MultiReport (8x Cobertura)
+  Assemblies: 3
+  Classes: 66
+  Files: 58
+  Line coverage: 69.6%
+  Covered lines: 960
+  Uncovered lines: 418
+  Coverable lines: 1378
+  Total lines: 2180
+  Branch coverage: 60.4% (133 of 220)
+  Covered branches: 133
+  Total branches: 220
+  Method coverage: 85% (257 of 302)
+  Full method coverage: 81.1% (245 of 302)
+  Covered methods: 257
+  Fully covered methods: 245
+  Total methods: 302
+
+CatalogService                                               55.4%
+  CatalogService.Controllers.CatalogController                 66%
+  CatalogService.Data.CatalogServiceContext                    90%
+  CatalogService.Data.CatalogServiceContextFactory              0%
+  CatalogService.Data.DataSeeder                                0%
+  CatalogService.Dtos.BookDetailResponse                        0%
+  CatalogService.Dtos.BookSummaryResponse                     100%
+  CatalogService.Dtos.ErrorResponse                           100%
+  CatalogService.Dtos.PagedResult<T>                          100%
+  CatalogService.Dtos.UpdateAvailabilityRequest               100%
+  CatalogService.Dtos.UpdateAvailabilityResponse              100%
+  CatalogService.Models.Book                                 64.2%
+  Program                                                       0%
+
+ReservationService                                           74.6%
+  Program                                                       0%
+  ReservationService.Controllers.ReservationsController        84%
+  ReservationService.Controllers.WaitlistController           100%
+  ReservationService.Data.ReservationServiceContext          92.4%
+  ReservationService.Data.ReservationServiceContextFactory      0%
+  ReservationService.Dtos.ActiveReservationItem               100%
+  ReservationService.Dtos.ActiveReservationsResponse          100%
+  ReservationService.Dtos.BookUnavailableResponse             100%
+  ReservationService.Dtos.CheckoutRequest                     100%
+  ReservationService.Dtos.CheckoutResponse                    100%
+  ReservationService.Dtos.CreateReservationRequest            100%
+  ReservationService.Dtos.ErrorResponse                       100%
+  ReservationService.Dtos.HistoryItemResponse                 100%
+  ReservationService.Dtos.InvalidStatusResponse               100%
+  ReservationService.Dtos.JoinWaitlistRequest                 100%
+  ReservationService.Dtos.PagedResult<T>                      100%
+  ReservationService.Dtos.ReservationLimitExceededResponse    100%
+  ReservationService.Dtos.ReservationResponse                 100%
+  ReservationService.Dtos.ReservationStatisticsResponse       100%
+  ReservationService.Dtos.ReturnRequest                       100%
+  ReservationService.Dtos.ReturnResponse                      100%
+  ReservationService.Dtos.WaitlistCancelResponse              100%
+  ReservationService.Dtos.WaitlistEntryResponse               100%
+  ReservationService.Dtos.WaitlistJoinResponse                100%
+  ReservationService.Dtos.WaitlistListResponse                100%
+  ReservationService.Models.Reservation                      94.4%
+  ReservationService.Models.Waitlist                          100%
+  ReservationService.Services.BookLookupResult                100%
+  ReservationService.Services.CatalogServiceClient              0%
+  ReservationService.Services.EnumExtensions                  100%
+  ReservationService.Services.UserServiceClient                 0%
+  ReservationService.Services.UserValidationResult            100%
+  ReservationService.Services.WaitlistCascadeService          100%
+  ReservationService.Services.WaitlistExpiryJob              70.5%
+
+UserService                                                  68.8%
+  Program                                                       0%
+  UserService.Controllers.AuthController                     92.5%
+  UserService.Controllers.UsersController                     100%
+  UserService.Data.UserServiceContext                        80.9%
+  UserService.Data.UserServiceContextFactory                    0%
+  UserService.Dtos.ErrorResponse                              100%
+  UserService.Dtos.LoginRequest                               100%
+  UserService.Dtos.LoginResponse                              100%
+  UserService.Dtos.ProfileResponse                            100%
+  UserService.Dtos.RegisterRequest                            100%
+  UserService.Dtos.RegisterResponse                           100%
+  UserService.Dtos.UserSummary                                100%
+  UserService.Dtos.UserValidationResponse                     100%
+  UserService.Models.User                                     100%
+  UserService.Services.BCryptPasswordHasher                   100%
+  UserService.Services.JwtTokenService                          0%
+  UserService.Services.ReservationServiceClient               100%
+  UserService.Services.ReservationStatistics                  100%
+  UserService.Validators.LoginRequestValidator                100%
+  UserService.Validators.RegisterRequestValidator             100%

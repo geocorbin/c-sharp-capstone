@@ -69,4 +69,3 @@ public class UsersController(UserServiceContext context, IReservationServiceClie
         });
     }
 }
-}

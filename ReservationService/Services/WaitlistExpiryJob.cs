@@ -29,7 +29,7 @@ public class WaitlistExpiryJob(
         }
     }
 
-    private async Task ProcessExpiredClaimsAsync(CancellationToken stoppingToken)
+    public async Task ProcessExpiredClaimsAsync(CancellationToken stoppingToken)
     {
         using var scope = scopeFactory.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<ReservationServiceContext>();

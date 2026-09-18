@@ -10,4 +10,3 @@ public class UserValidationResponse
     public required string MembershipStatus { get; set; }
     public int ActiveReservationsCount { get; set; }
 }
-}
