@@ -1,5 +1,20 @@
 # Digital Library Management System API (.NET Microservices)
 
+## Reflection Notes
+
+### Issues + Resolutions
+
+- Got 502 errors because environment variables were default values which broke the database connection
+- Multi-word statuses came out formatted wrong for the API (like "CHECKEDOUT" instead of "CHECKED_OUT") so I wrote a small helper to convert them correctly
+- There was no way to create a librarian account anywhere in the app, so checkout and return couldn't be tested at all so I added a small script that creates one automatically during local development
+- The book catalog had no way to add books through the API so testing reservations needed sample data so I added a script to seed a few books automatically
+
+### What went well
+
+- Automated tests caught a real bug in status formatting
+- Health check endpoints made verifying the deployment faster which was nice
+- Once I got past the 502 errors with the bad env variables the communication between all three services worked correctly
+
 ## Business Context
 
 ### Overview
