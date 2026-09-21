@@ -42,4 +42,19 @@ if (!app.Environment.IsDevelopment())
 
 app.MapControllers();
 
+app.MapGet("/health", async (CatalogServiceContext context) =>
+{
+    int migrationsApplied;
+    try
+    {
+        migrationsApplied = (await context.Database.GetAppliedMigrationsAsync()).Count();
+    }
+    catch (NotSupportedException)
+    {
+        migrationsApplied = 0;
+    }
+
+    return Results.Ok(new { service = "CatalogService", status = "UP", database = "catalogservicedb", migrations = migrationsApplied });
+});
+
 app.Run();

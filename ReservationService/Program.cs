@@ -97,4 +97,19 @@ app.UseAuthorization();
 
 app.MapControllers();
 
+app.MapGet("/health", async (ReservationServiceContext context) =>
+{
+    int migrationsApplied;
+    try
+    {
+        migrationsApplied = (await context.Database.GetAppliedMigrationsAsync()).Count();
+    }
+    catch (NotSupportedException)
+    {
+        migrationsApplied = 0;
+    }
+
+    return Results.Ok(new { service = "ReservationService", status = "UP", database = "reservationservicedb", migrations = migrationsApplied });
+});
+
 app.Run();

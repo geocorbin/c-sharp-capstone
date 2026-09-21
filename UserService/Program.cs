@@ -94,4 +94,19 @@ app.UseAuthorization();
 
 app.MapControllers();
 
+app.MapGet("/health", async (UserServiceContext context) =>
+{
+    int migrationsApplied;
+    try
+    {
+        migrationsApplied = (await context.Database.GetAppliedMigrationsAsync()).Count();
+    }
+    catch (NotSupportedException)
+    {
+        migrationsApplied = 0;
+    }
+
+    return Results.Ok(new { service = "UserService", status = "UP", database = "userservicedb", migrations = migrationsApplied });
+});
+
 app.Run();
